@@ -1,7 +1,7 @@
+from os import times
+
 import torch
 import tqdm
-from tensorboard.compat.tensorflow_stub.errors import InvalidArgumentError
-
 
 class Atk_PDM_Attacker():
     def __init__(self, diffusion, model, mode='base', encoder=None, decoder=None):
@@ -32,7 +32,6 @@ class Atk_PDM_Attacker():
     def attack_pdm_atk_latent(self, x):
         x_adv = x.clone()
         x_adv.requires_grad = True
-        attack_loss = 1e9
         z_adv = self.encode(x_adv)
         for i in range(self.optimization_steps):
             x_adv = self.decode(z_adv) # Decode by VAE
@@ -64,12 +63,13 @@ class Atk_PDM_Attacker():
     def attack_pdm_atk_base(self, x):
         x_adv = x.clone()
         x_adv.requires_grad = True
-        attack_loss = 1e9
         for i in range(self.optimization_steps):
             timestep = self.sample_timestep() # Sample random t \in [0, T]
             e1, e2 = self.sample_noise() # Standard Normal
             sample_clean = self.compute_sample(x, timestep, e1)
             sample_adv = self.compute_sample(x_adv, timestep, e2)
+
+            intermediate_clean = self.get_unet_intermediate(x, timestep)
 
             attack_loss = self.compute_attack_loss(sample_clean, sample_adv) # Compute loss
             attack_loss.backward() # Populate gradients
@@ -107,6 +107,19 @@ class Atk_PDM_Attacker():
         e2 = torch.normal(torch.zeros(shape), torch.ones(shape))
         return e1, e2
 
+    # Get intermediate output from denoising UNET middle block
+    def get_unet_intermediate(self, x, timestep):
+        external_otp = []
+
+        def getIntermediateOutput(model, input, output):
+            external_otp.append(output)# Save output
+
+        hook = self.model.middle_block.register_forward_hook(getIntermediateOutput) # Save intermediate output
+        eps_pred = self.diffusion.p_mean_variance(self.model, x, timestep)['model_output'] # Run denoising step
+        hook.remove()
+
+        return external_otp[0]
+
     # Compute samples
     def compute_sample(self, x, t, e):
         return self.diffusion.q_sample(x, t, return_noise=False, noise=e)
@@ -117,7 +130,7 @@ class Atk_PDM_Attacker():
 
     # Attack fidelity loss
     def compute_fidelity_loss(self, x, x_adv):
-        pass
+        return torch.nn.functional.mse_loss(x.detach(), x_adv)
 
     # SDEdit
     @torch.no_grad()
