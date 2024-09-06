@@ -1,5 +1,3 @@
-from os import times
-
 import torch
 import tqdm
 
@@ -28,36 +26,36 @@ class Atk_PDM_Attacker():
             print('Unknown attack mode (use base or latent')
             raise RuntimeError()
 
-    # Attack plus (with latent space)
-    def attack_pdm_atk_latent(self, x):
-        x_adv = x.clone()
-        x_adv.requires_grad = True
-        z_adv = self.encode(x_adv)
-        for i in range(self.optimization_steps):
-            x_adv = self.decode(z_adv) # Decode by VAE
-            timestep = self.sample_timestep() # Sample random t \in [0, T]
-            e1, e2 = self.sample_noise() # Standard Normal
-            sample_clean = self.compute_sample(x, timestep, e1)
-            sample_adv = self.compute_sample(x_adv, timestep, e2)
-
-            attack_loss = self.compute_attack_loss(sample_clean, sample_adv) # Compute loss
-            attack_loss.backward() # Populate gradients
-            # Gradient Descent for z_adv
-            z_adv -= self.gamma1 * torch.sign(z_adv.grad)
-            z_adv.grad = None # Reset Gradient
-            # Optimize for Fidelity Loss
-            fidelity_loss = self.compute_fidelity_loss(x, self.decode(z_adv))
-            while fidelity_loss > self.delta:
-                fidelity_loss.backward()
-                z_adv -= self.gamma2 * z_adv.grad.detach()
-                z_adv.grad = None  # Reset Gradient
-                fidelity_loss = self.compute_fidelity_loss(x, self.decode(z_adv)) # Recalculate loss
-        # Get final result
-        x_adv = self.decode(z_adv)
-        # Get SDEdit outputs
-        clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
-
-        return x_adv, clean_sdedit, adv_sdedit
+    # TODO Update before uncommenting Attack plus (with latent space)
+    # def attack_pdm_atk_latent(self, x):
+    #     x_adv = x.clone()
+    #     x_adv.requires_grad = True
+    #     z_adv = self.encode(x_adv)
+    #     for i in range(self.optimization_steps):
+    #         x_adv = self.decode(z_adv) # Decode by VAE
+    #         timestep = self.sample_timestep() # Sample random t \in [0, T]
+    #         e1, e2 = self.sample_noise() # Standard Normal
+    #         sample_clean = self.compute_sample(x, timestep, e1)
+    #         sample_adv = self.compute_sample(x_adv, timestep, e2)
+    #
+    #         attack_loss = self.compute_attack_loss(sample_clean, sample_adv) # Compute loss
+    #         attack_loss.backward() # Populate gradients
+    #         # Gradient Descent for z_adv
+    #         z_adv -= self.gamma1 * torch.sign(z_adv.grad)
+    #         z_adv.grad = None # Reset Gradient
+    #         # Optimize for Fidelity Loss
+    #         fidelity_loss = self.compute_fidelity_loss(x, self.decode(z_adv))
+    #         while fidelity_loss > self.delta:
+    #             fidelity_loss.backward()
+    #             z_adv -= self.gamma2 * z_adv.grad.detach()
+    #             z_adv.grad = None  # Reset Gradient
+    #             fidelity_loss = self.compute_fidelity_loss(x, self.decode(z_adv)) # Recalculate loss
+    #     # Get final result
+    #     x_adv = self.decode(z_adv)
+    #     # Get SDEdit outputs
+    #     clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
+    #
+    #     return x_adv, clean_sdedit, adv_sdedit
 
     # Base attack without latent space
     def attack_pdm_atk_base(self, x):
@@ -66,12 +64,13 @@ class Atk_PDM_Attacker():
         for i in range(self.optimization_steps):
             timestep = self.sample_timestep() # Sample random t \in [0, T]
             e1, e2 = self.sample_noise() # Standard Normal
-            sample_clean = self.compute_sample(x, timestep, e1)
+            sample_clean = self.compute_sample(x, timestep, e1) # Computing samples with noise
             sample_adv = self.compute_sample(x_adv, timestep, e2)
 
-            intermediate_clean = self.get_unet_intermediate(x, timestep)
+            intermediate_clean = self.get_unet_intermediate(sample_clean, timestep) # Running denoising UNETs
+            intermediate_adv = self.get_unet_intermediate(sample_adv, timestep)
 
-            attack_loss = self.compute_attack_loss(sample_clean, sample_adv) # Compute loss
+            attack_loss = self.compute_attack_loss(intermediate_clean, intermediate_adv) # Compute loss
             attack_loss.backward() # Populate gradients
             # Gradient Descent for x_adv
             x_adv -= self.gamma1 * torch.sign(x_adv.grad)
@@ -111,11 +110,11 @@ class Atk_PDM_Attacker():
     def get_unet_intermediate(self, x, timestep):
         external_otp = []
 
-        def getIntermediateOutput(model, input, output):
+        def get_intermediate_output(_1, _2, output):
             external_otp.append(output)# Save output
 
-        hook = self.model.middle_block.register_forward_hook(getIntermediateOutput) # Save intermediate output
-        eps_pred = self.diffusion.p_mean_variance(self.model, x, timestep)['model_output'] # Run denoising step
+        hook = self.model.middle_block.register_forward_hook(get_intermediate_output) # Save intermediate output
+        _ = self.diffusion.p_mean_variance(self.model, x, timestep)['model_output'] # Run denoising step
         hook.remove()
 
         return external_otp[0]
@@ -125,8 +124,8 @@ class Atk_PDM_Attacker():
         return self.diffusion.q_sample(x, t, return_noise=False, noise=e)
 
     # Adversarial attack loss
-    def compute_attack_loss(self, x, x_adv):
-        pass
+    def compute_attack_loss(self, unet_intermediate_clean, unet_intermediate_adv):
+        return torch.nn.functional.mse_loss(unet_intermediate_clean.detach(), unet_intermediate_adv)
 
     # Attack fidelity loss
     def compute_fidelity_loss(self, x, x_adv):
