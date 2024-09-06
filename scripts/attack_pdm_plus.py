@@ -8,12 +8,12 @@ import torch
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, default='imagenet-256')
 parser.add_argument("--image_path", type=str, default='parrot.png')
-parser.add_argument("--save_path", type=str, default='examples/parrot_attack_pdm_plus.png')
+parser.add_argument("--save_path", type=str, default='examples/parrot_attack.png')
 parser.add_argument("--attack_mode", type=str, default='base')
 parser.add_argument("--image_size", type=int, default=224)
 parser.add_argument("--steps", type=int, default=500)
 parser.add_argument("--optimization_steps", type=int, default=300)
-parser.add_argument("--fidelity_delta", type=float)
+parser.add_argument("--fidelity_delta", type=float, default=200)
 parser.add_argument("--gamma_1", type=float, default=0.5)
 parser.add_argument("--gamma_2", type=float, default=0.2)
 args = parser.parse_args()
@@ -30,6 +30,7 @@ if __name__ == '__main__':
                                      gamma1=args.gamma_1,
                                      gamma2=args.gamma_2,
                                      T=args.steps,
-                                     optimization_steps=args.optimization_steps)
+                                     optimization_steps=args.optimization_steps,
+                                     device=device)
         X_adv, adv_sdedit, clean_sdedit = attacker.attack_pdm_atk(x)
         si(torch.cat([clean_sdedit, adv_sdedit], -2), args.save_path)

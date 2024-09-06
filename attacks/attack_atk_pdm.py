@@ -1,5 +1,7 @@
 import torch
-import tqdm
+from tqdm import tqdm, trange
+from torch.cuda import device
+
 
 class Atk_PDM_Attacker():
     def __init__(self, diffusion, model, mode='base', encoder=None, decoder=None):
@@ -9,12 +11,13 @@ class Atk_PDM_Attacker():
         self.encoder = encoder
         self.decoder = decoder
 
-    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, T, optimization_steps):
+    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, T, optimization_steps, device):
         self.delta = delta
         self.gamma1 = gamma1
         self.gamma2 = gamma2
         self.T = T
         self.optimization_steps = optimization_steps
+        self.device = device
 
     # Helper attack function
     def attack_pdm_atk(self, x):
@@ -60,28 +63,31 @@ class Atk_PDM_Attacker():
     # Base attack without latent space
     def attack_pdm_atk_base(self, x):
         x_adv = x.clone()
-        x_adv.requires_grad = True
-        for i in range(self.optimization_steps):
-            timestep = self.sample_timestep() # Sample random t \in [0, T]
-            e1, e2 = self.sample_noise() # Standard Normal
-            sample_clean = self.compute_sample(x, timestep, e1) # Computing samples with noise
-            sample_adv = self.compute_sample(x_adv, timestep, e2)
+        with torch.enable_grad():
+            for i in trange(self.optimization_steps):
+                x_adv = x_adv.clone().detach()
+                x_adv.requires_grad = True
+                timestep = self.sample_timestep().long() # Sample random t \in [0, T]
+                e1, e2 = self.sample_noise(x.shape) # Standard Normal
+                sample_clean = self.compute_sample(x, timestep, e1) # Computing samples with noise
+                sample_adv = self.compute_sample(x_adv, timestep, e2)
 
-            intermediate_clean = self.get_unet_intermediate(sample_clean, timestep) # Running denoising UNETs
-            intermediate_adv = self.get_unet_intermediate(sample_adv, timestep)
+                intermediate_clean = self.get_unet_intermediate(sample_clean, timestep) # Running denoising UNETs
+                intermediate_adv = self.get_unet_intermediate(sample_adv, timestep)
 
-            attack_loss = self.compute_attack_loss(intermediate_clean, intermediate_adv) # Compute loss
-            attack_loss.backward() # Populate gradients
-            # Gradient Descent for x_adv
-            x_adv -= self.gamma1 * torch.sign(x_adv.grad)
-            x_adv.grad = None # Reset Gradient
-            # Optimize for Fidelity Loss
-            fidelity_loss = self.compute_fidelity_loss(x, x_adv)
-            while fidelity_loss > self.delta:
-                fidelity_loss.backward()
-                x_adv -= self.gamma2 * x_adv.grad.detach()
+                attack_loss = self.compute_attack_loss(intermediate_clean, intermediate_adv) # Compute loss
+                attack_loss.backward() # Populate gradients
+                g_att = x_adv.grad.detach()
+                x_adv = x_adv - self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
                 x_adv.grad = None  # Reset Gradient
-                fidelity_loss = self.compute_fidelity_loss(x, x_adv) # Recalculate loss
+                # Optimize for Fidelity Loss
+                fidelity_loss = self.compute_fidelity_loss(x, x_adv)
+                while fidelity_loss > self.delta:
+                    fidelity_loss.backward()
+                    g_fdl = x_adv.grad.detach()
+                    x_adv -= self.gamma2 * g_fdl
+                    x_adv.grad = None  # Reset Gradient
+                    fidelity_loss = self.compute_fidelity_loss(x, x_adv) # Recalculate loss
 
         # Get SDEdit outputs
         clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
@@ -98,12 +104,14 @@ class Atk_PDM_Attacker():
 
     # Sample timestep
     def sample_timestep(self):
-        return torch.round(torch.rand(1) * self.T) # Uniform [0, T]
+        return torch.round(torch.rand(1, device=self.device) * self.T) # Uniform [0, T]
 
     # Sample Gaussian noise for diffusion
     def sample_noise(self, shape):
-        e1 = torch.normal(torch.zeros(shape), torch.ones(shape))
-        e2 = torch.normal(torch.zeros(shape), torch.ones(shape))
+        means = torch.zeros(shape, device=self.device)
+        var = torch.ones(shape, device=self.device)
+        e1 = torch.normal(means, var)
+        e2 = torch.normal(means, var)
         return e1, e2
 
     # Get intermediate output from denoising UNET middle block
@@ -125,7 +133,7 @@ class Atk_PDM_Attacker():
 
     # Adversarial attack loss
     def compute_attack_loss(self, unet_intermediate_clean, unet_intermediate_adv):
-        return torch.nn.functional.mse_loss(unet_intermediate_clean.detach(), unet_intermediate_adv)
+        return torch.nn.functional.mse_loss(unet_intermediate_clean, unet_intermediate_adv)
 
     # Attack fidelity loss
     def compute_fidelity_loss(self, x, x_adv):
