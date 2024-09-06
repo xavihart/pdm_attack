@@ -11,7 +11,6 @@ parser.add_argument("--image_path", type=str, default='parrot.png')
 parser.add_argument("--save_path", type=str, default='examples/parrot_attack.png')
 parser.add_argument("--attack_mode", type=str, default='base')
 parser.add_argument("--image_size", type=int, default=224)
-parser.add_argument("--steps", type=int, default=500)
 parser.add_argument("--optimization_steps", type=int, default=300)
 parser.add_argument("--fidelity_delta", type=float, default=0.85)
 parser.add_argument("--gamma_1", type=float, default=0.5)
@@ -29,7 +28,6 @@ if __name__ == '__main__':
         attacker.gen_pdm_atkp_config(delta=args.fidelity_delta,
                                      gamma1=args.gamma_1,
                                      gamma2=args.gamma_2,
-                                     T=args.steps,
                                      optimization_steps=args.optimization_steps,
                                      device=device)
         X_adv, adv_sdedit, clean_sdedit = attacker.attack_pdm_atk(x)

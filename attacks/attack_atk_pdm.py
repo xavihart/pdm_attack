@@ -11,11 +11,11 @@ class Atk_PDM_Attacker():
         self.encoder = encoder
         self.decoder = decoder
 
-    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, T, optimization_steps, device):
+    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, optimization_steps, device):
         self.delta = delta
         self.gamma1 = gamma1
         self.gamma2 = gamma2
-        self.T = T
+        self.T = max(self.diffusion.use_timesteps)
         self.optimization_steps = optimization_steps
         self.device = device
 
@@ -62,14 +62,15 @@ class Atk_PDM_Attacker():
 
     # Base attack without latent space
     def attack_pdm_atk_base(self, x):
-        x_adv = x.clone()
+        x_adv = x.clone().detach() * 2 - 1
+        x_raw = x.clone().detach() * 2 - 1
         with torch.enable_grad():
             for i in trange(self.optimization_steps):
                 x_adv = x_adv.clone().detach()
                 x_adv.requires_grad = True
                 timestep = self.sample_timestep().long() # Sample random t \in [0, T]
-                e1, e2 = self.sample_noise(x.shape) # Standard Normal
-                sample_clean = self.compute_sample(x, timestep, e1) # Computing samples with noise
+                e1, e2 = self.sample_noise(x_raw.shape) # Standard Normal
+                sample_clean = self.compute_sample(x_raw, timestep, e1) # Computing samples with noise
                 sample_adv = self.compute_sample(x_adv, timestep, e2)
 
                 intermediate_clean = self.get_unet_intermediate(sample_clean, timestep) # Running denoising UNETs
@@ -78,12 +79,12 @@ class Atk_PDM_Attacker():
                 attack_loss = self.compute_attack_loss(intermediate_clean, intermediate_adv) # Compute loss
                 attack_loss.backward() # Populate gradients
                 g_att = x_adv.grad.detach()
-                x_adv = x_adv - self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
+                x_adv = x_adv + self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
                 # Reset gradient for Fidelity loss
                 x_adv = x_adv.clone().detach()
                 x_adv.requires_grad = True
                 # Optimize for Fidelity Loss
-                fidelity_loss = self.compute_fidelity_loss(x, x_adv)
+                fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv)
                 while fidelity_loss > self.delta:
                     fidelity_loss.backward()
                     g_fdl = x_adv.grad.detach()
@@ -91,12 +92,13 @@ class Atk_PDM_Attacker():
                     # Reset gradients before next run
                     x_adv = x_adv.clone().detach()
                     x_adv.requires_grad = True
-                    fidelity_loss = self.compute_fidelity_loss(x, x_adv) # Recalculate loss
+                    fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv) # Recalculate loss
 
+        x_adv = (x_adv + 1) / 2
         # Get SDEdit outputs
         clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
 
-        return x_adv, clean_sdedit, adv_sdedit
+        return x_adv, adv_sdedit, clean_sdedit
 
     # Encode image into latent vector using VAE
     def encode(self, x):
@@ -179,5 +181,5 @@ class Atk_PDM_Attacker():
         return sample
 
     # Helper function
-    def gen_edit_results(self, x, strength_list = [0.5, 0.7]):
+    def gen_edit_results(self, x, strength_list = [0.05, 0.3]): # [0.5, 0.7]):
         return torch.cat([x]+[self.sdedit(x, strength) for strength in strength_list], -1)
