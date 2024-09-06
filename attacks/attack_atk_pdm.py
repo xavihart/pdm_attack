@@ -79,14 +79,18 @@ class Atk_PDM_Attacker():
                 attack_loss.backward() # Populate gradients
                 g_att = x_adv.grad.detach()
                 x_adv = x_adv - self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
-                x_adv.grad = None  # Reset Gradient
+                # Reset gradient for Fidelity loss
+                x_adv = x_adv.clone().detach()
+                x_adv.requires_grad = True
                 # Optimize for Fidelity Loss
                 fidelity_loss = self.compute_fidelity_loss(x, x_adv)
                 while fidelity_loss > self.delta:
                     fidelity_loss.backward()
                     g_fdl = x_adv.grad.detach()
-                    x_adv -= self.gamma2 * g_fdl
-                    x_adv.grad = None  # Reset Gradient
+                    x_adv = x_adv - self.gamma2 * g_fdl
+                    # Reset gradients before next run
+                    x_adv = x_adv.clone().detach()
+                    x_adv.requires_grad = True
                     fidelity_loss = self.compute_fidelity_loss(x, x_adv) # Recalculate loss
 
         # Get SDEdit outputs
