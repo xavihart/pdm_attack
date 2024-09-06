@@ -29,6 +29,8 @@ if __name__ == '__main__':
                                      gamma1=args.gamma_1,
                                      gamma2=args.gamma_2,
                                      optimization_steps=args.optimization_steps,
-                                     device=device)
+                                     device=device,
+                                     clip_min=-1,
+                                     clip_max=1)
         X_adv, adv_sdedit, clean_sdedit = attacker.attack_pdm_atk(x)
         si(torch.cat([clean_sdedit, adv_sdedit], -2), args.save_path)

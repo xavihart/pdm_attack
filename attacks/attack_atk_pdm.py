@@ -11,13 +11,15 @@ class Atk_PDM_Attacker():
         self.encoder = encoder
         self.decoder = decoder
 
-    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, optimization_steps, device):
+    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, optimization_steps, device, clip_min, clip_max):
         self.delta = delta
         self.gamma1 = gamma1
         self.gamma2 = gamma2
         self.T = max(self.diffusion.use_timesteps)
         self.optimization_steps = optimization_steps
         self.device = device
+        self.clip_min = clip_min
+        self.clip_max = clip_max
 
     # Helper attack function
     def attack_pdm_atk(self, x):
@@ -80,6 +82,7 @@ class Atk_PDM_Attacker():
                 attack_loss.backward() # Populate gradients
                 g_att = x_adv.grad.detach()
                 x_adv = x_adv + self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
+                x_adv.data = torch.clamp(x_adv, min=self.clip_min, max=self.clip_max) # Data must be [-1; 1]
                 # Reset gradient for Fidelity loss
                 x_adv = x_adv.clone().detach()
                 x_adv.requires_grad = True
@@ -93,8 +96,11 @@ class Atk_PDM_Attacker():
                     x_adv = x_adv.clone().detach()
                     x_adv.requires_grad = True
                     fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv) # Recalculate loss
+                x_adv.data = torch.clamp(x_adv, min=self.clip_min, max=self.clip_max)  # Data must be [-1; 1]
 
         x_adv = (x_adv + 1) / 2
+
+        self.model.eval() # Eval mode to compute SDEdit
         # Get SDEdit outputs
         clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
 
