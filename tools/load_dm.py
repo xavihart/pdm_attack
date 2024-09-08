@@ -31,8 +31,8 @@ from argparse import Namespace
 import time
 import datetime
 from .utils import *
+ROOT = 'ckpt/'
 
-ROOT = './ckpt/'
 GUIDED_DIFFUSION_MODEL_NAME = {
     'imagenet-256':{
         'path': '256x256_diffusion_uncond.pt',
