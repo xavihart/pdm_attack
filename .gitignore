@@ -3,3 +3,4 @@ ckpt/*.pt
 *.npy
 *.log
 *.out
+*/__pycache__
