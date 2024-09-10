@@ -38,13 +38,32 @@ def cprint(x, c):
     print(c_t, x)
     print(Style.RESET_ALL)
 
-def si(x, p, to_01=False, normalize=False):
-    if isinstance(x, np.ndarray):
-        x = torch.from_numpy(x)
-    if to_01:
-        torchvision.utils.save_image((x+1)/2, p, normalize=normalize)
-    else:
-        torchvision.utils.save_image(x, p, normalize=normalize)
+# def si(x, p, to_01=False, normalize=False):
+#     if isinstance(x, np.ndarray):
+#         x = torch.from_numpy(x)
+#     if to_01:
+#         torchvision.utils.save_image((x+1)/2, p, normalize=normalize)
+#     else:
+#         torchvision.utils.save_image(x, p, normalize=normalize)
+def si(x, p):
+    # transfer x to numpy if if is torch.Tensor
+    if isinstance(x, torch.Tensor):
+        x = x.cpu().detach().numpy()
+    # if x.dim = 3, save the image into path
+    if x.ndim == 3:
+        # transfer to hwc
+        x = np.transpose(x, (1, 2, 0))
+        Image.fromarray((x * 255).astype(np.uint8)).save(p)
+    
+    # if x.dim = 4, concatenate the image as a sequence of images into path
+    if x.ndim == 4:
+        x = x * 255
+        x = x.astype(np.uint8)
+        # transfer to bhwc
+        x = np.transpose(x, (0, 2, 3, 1))
+        Image.fromarray(np.concatenate(x, axis=0)).save(p)
+    return
+        
 
 
 def mp(p):

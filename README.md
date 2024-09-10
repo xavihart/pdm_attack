@@ -11,3 +11,10 @@
 ```
 python -m scripts.attack_pdm --image_path parrot.png
 ```
+
+(3) Attack PDM in  ([arxiv](https://arxiv.org/pdf/2408.11810)):
+
+```
+python -m scripts.attack_pdm_plus --image_path parrot.png --respace ddim100 
+```
+use ddim100 to accelerate

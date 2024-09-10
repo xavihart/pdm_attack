@@ -9,7 +9,9 @@ import argparse
 class GuidedDiffusion_Attacker():
     def __init__(self, diffusion, model):
         self.diffusion = diffusion
-        self.model = model 
+        self.model = model
+        # self.model.eval()
+        
     
     @torch.no_grad()
     def sdedit(self, x, t, to_01=True):

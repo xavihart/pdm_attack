@@ -11,15 +11,18 @@ class Atk_PDM_Attacker():
         self.encoder = encoder
         self.decoder = decoder
 
-    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, optimization_steps, device, clip_min, clip_max):
+    def gen_pdm_atkp_config(self, delta, gamma1, gamma2, optimization_steps, device, clip_min, clip_max, eps, step_size):
         self.delta = delta
         self.gamma1 = gamma1
         self.gamma2 = gamma2
-        self.T = max(self.diffusion.use_timesteps)
+        self.T = len(self.diffusion.use_timesteps)
         self.optimization_steps = optimization_steps
         self.device = device
         self.clip_min = clip_min
         self.clip_max = clip_max
+        
+        self.eps = eps / 255 * (clip_max - clip_min)
+        self.step_size = step_size / 255 * (clip_max - clip_min)
 
     # Helper attack function
     def attack_pdm_atk(self, x):
@@ -54,30 +57,36 @@ class Atk_PDM_Attacker():
                 attack_loss = self.compute_attack_loss(intermediate_clean, intermediate_adv) # Compute loss
                 attack_loss.backward() # Populate gradients
                 g_att = x_adv.grad.detach()
-                x_adv = x_adv + self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
+                # x_adv = x_adv + self.gamma1 * torch.sign(g_att) # Gradient Descent for x_adv
+                x_adv = x_adv + torch.sign(g_att) * self.step_size # Step size
+                
+                x_adv = torch.clamp(x_adv, min=x_raw - self.eps, max=x_raw + self.eps) # Clip using epsilon ball
                 x_adv.data = torch.clamp(x_adv, min=self.clip_min, max=self.clip_max) # Data must be [-1; 1]
+                
                 # Reset gradient for Fidelity loss
-                x_adv = x_adv.clone().detach()
-                x_adv.requires_grad = True
+                # x_adv = x_adv.clone().detach()
+                # x_adv.requires_grad = True
                 # Optimize for Fidelity Loss
-                fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv)
-                while fidelity_loss > self.delta:
-                    fidelity_loss.backward()
-                    g_fdl = x_adv.grad.detach()
-                    x_adv = x_adv - self.gamma2 * g_fdl
-                    # Reset gradients before next run
-                    x_adv = x_adv.clone().detach()
-                    x_adv.requires_grad = True
-                    fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv) # Recalculate loss
-                x_adv.data = torch.clamp(x_adv, min=self.clip_min, max=self.clip_max)  # Data must be [-1; 1]
-
+                # fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv)
+                # while fidelity_loss > self.delta:
+                #     fidelity_loss.backward()
+                #     g_fdl = x_adv.grad.detach()
+                #     x_adv = x_adv - self.gamma2 * g_fdl
+                #     # Reset gradients before next run
+                #     x_adv = x_adv.clone().detach()
+                #     x_adv.requires_grad = True
+                #     fidelity_loss = self.compute_fidelity_loss(x_raw, x_adv) # Recalculate loss
+                
+                # x_adv.data = torch.clamp(x_adv, min=self.clip_min, max=self.clip_max)  # Data must be [-1; 1]
+                
+        
         x_adv = (x_adv + 1) / 2
-
         self.model.eval() # Eval mode to compute SDEdit
-        # Get SDEdit outputs
-        clean_sdedit, adv_sdedit = self.gen_edit_results(torch.cat([x, x_adv], 0))
-
-        return x_adv, adv_sdedit, clean_sdedit
+        # Get SDEdit outputs 
+        # generate more samples
+        ori = torch.cat([x] * 5 + [x_adv] * 5, 0)
+        results = self.gen_edit_results(ori)
+        return results, x_adv
 
     # Encode image into latent vector using VAE
     def encode(self, x):
@@ -87,9 +96,11 @@ class Atk_PDM_Attacker():
     def decode(self, z):
         pass
 
-    # Sample timestep
+    # Sample timestep, from 0 to t-1
     def sample_timestep(self):
-        return torch.round(torch.rand(1, device=self.device) * self.T) # Uniform [0, T]
+
+        return torch.randint(0, self.T, (1,), device=self.device)
+
 
     # Sample Gaussian noise for diffusion
     def sample_noise(self, shape):
@@ -150,15 +161,15 @@ class Atk_PDM_Attacker():
         print('Run Diffusion Sampling ...')
         for i in tqdm(sample_indices):
             t_tensor = torch.full((B,), i).long().to(x.device)
-            out = self.diffusion.p_sample(self.model, sample, t_tensor)
+            out = self.diffusion.ddim_sample(self.model, sample, t_tensor)
             sample = out["sample"]
 
         # the output of diffusion model is [-1, 1], should be transformed to [0, 1]
         if to_01:
             sample = (sample + 1) / 2
-
+        
         return sample
-
+    
     # Helper function
     def gen_edit_results(self, x, strength_list = [0.05, 0.3]): # [0.5, 0.7]):
         return torch.cat([x]+[self.sdedit(x, strength) for strength in strength_list], -1)

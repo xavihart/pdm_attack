@@ -8,18 +8,21 @@ import torch
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, default='imagenet-256')
 parser.add_argument("--image_path", type=str, default='parrot.png')
-parser.add_argument("--save_path", type=str, default='examples/parrot_attack.png')
+parser.add_argument("--save_path", type=str, default='examples/parrot_attack_latent.png')
 parser.add_argument("--attack_mode", type=str, default='base')
 parser.add_argument("--image_size", type=int, default=224)
-parser.add_argument("--optimization_steps", type=int, default=50)
-parser.add_argument("--fidelity_delta", type=float, default=0.02)
+parser.add_argument("--optimization_steps", type=int, default=100)
+parser.add_argument("--fidelity_delta", type=float, default=0.2)
 parser.add_argument("--gamma_1", type=float, default=0.1)
 parser.add_argument("--gamma_2", type=float, default=0.3)
+parser.add_argument("--step_size", type=float, default=1)
+parser.add_argument("--eps", type=float, default=32)
+parser.add_argument("--respace", type=str, default="ddim100")
 args = parser.parse_args()
 
 if __name__ == '__main__':
     device = 0
-    model, dm = get_imagenet_dm_conf(model_name=args.model)
+    model, dm = get_imagenet_dm_conf(model_name=args.model, respace=args.respace)
     x = load_png(p=args.image_path, size=args.image_size)[None, ...].to(device)
 
     attacker = Atk_PDM_Attacker(diffusion=dm, model=model, mode=args.attack_mode)
@@ -30,7 +33,12 @@ if __name__ == '__main__':
                                      gamma2=args.gamma_2,
                                      optimization_steps=args.optimization_steps,
                                      device=device,
+                                     eps=args.eps,
+                                     step_size=args.step_size,
                                      clip_min=-1,
-                                     clip_max=1)
-        X_adv, adv_sdedit, clean_sdedit = attacker.attack_pdm_atk(x)
-        si(torch.cat([clean_sdedit, adv_sdedit], -2), args.save_path)
+                                     clip_max=1,
+                                     )
+        results, x_adv = attacker.attack_pdm_atk(x)
+        # results B * C* H * W, split it into two halves
+        results_clean, results_adv = torch.split(results, results.shape[0] // 2, dim=0)
+        si(results_adv, args.save_path)
