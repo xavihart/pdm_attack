@@ -31,7 +31,6 @@ from argparse import Namespace
 import time
 import datetime
 from .utils import *
-
 ROOT = 'ckpt/'
 
 GUIDED_DIFFUSION_MODEL_NAME = {
