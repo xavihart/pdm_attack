@@ -4,12 +4,11 @@ from torch.cuda import device
 
 
 class Atk_PDM_Attacker():
-    def __init__(self, diffusion, model, mode='base', encoder=None, decoder=None):
+    def __init__(self, diffusion, model, mode='base', vae=None):
         self.diffusion = diffusion
         self.model = model
         self.mode = mode
-        self.encoder = encoder
-        self.decoder = decoder
+        self.vae = vae
 
     def gen_pdm_atkp_config(self, delta, fidelity_step_size, optimization_steps, device, clip_min, clip_max, eps, step_size):
         self.delta = delta
@@ -116,12 +115,18 @@ class Atk_PDM_Attacker():
         return results, x_adv
 
     # Encode image into latent vector using VAE
-    def encode(self, x):
-        return self.encoder(x)[:, :4, :, :] # Taking 4 channels to match decoder. TODO check channel mismatch
+    def encode(self, x, sample_posterior=False, generator=None):
+        posterior = self.vae.encode(x).latent_dist
+        if sample_posterior:
+            z = posterior.sample(generator=generator)
+        else:
+            z = posterior.mode()
+
+        return z
 
     # Decode latent vector into image using VAE
     def decode(self, z):
-        return self.decoder(z)
+        return self.vae.decode(z).sample
 
     # Sample timestep, from 0 to t-1
     def sample_timestep(self):

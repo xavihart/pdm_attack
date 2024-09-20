@@ -25,18 +25,15 @@ if __name__ == '__main__':
     device = 0
     model, dm = get_imagenet_dm_conf(model_name=args.model, respace=args.respace)
 
-    vae_encoder = None
-    vae_decoder = None
+    vae = None
 
     if args.attack_mode == 'latent':
         print('Loading VAE   ---------------')
-        vae = AutoencoderKL.from_single_file(args.vae_url)
-        vae_encoder = vae.encoder.to(device)
-        vae_decoder = vae.decoder.to(device)
+        vae = AutoencoderKL.from_single_file(args.vae_url).to(device)
 
     x = load_png(p=args.image_path, size=args.image_size)[None, ...].to(device)
 
-    attacker = Atk_PDM_Attacker(diffusion=dm, model=model, mode=args.attack_mode, encoder=vae_encoder, decoder=vae_decoder)
+    attacker = Atk_PDM_Attacker(diffusion=dm, model=model, mode=args.attack_mode, vae=vae)
 
     with torch.no_grad():
         attacker.gen_pdm_atkp_config(delta=args.fidelity_delta,
