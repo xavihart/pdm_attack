@@ -8,7 +8,7 @@ from diffusers import AutoencoderKL
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, default='imagenet-256')
-parser.add_argument("--vae-url", type=str, default='https://huggingface.co/Lykon/dreamshaper-8/blob/main/vae/diffusion_pytorch_model.safetensors')
+parser.add_argument("--vae_url", type=str, default="CompVis/stable-diffusion-v1-4")
 parser.add_argument("--image_path", type=str, default='parrot.png')
 parser.add_argument("--save_path", type=str, default='examples/parrot_attack_latent.png')
 parser.add_argument("--attack_mode", type=str, default='base')
@@ -29,7 +29,8 @@ if __name__ == '__main__':
 
     if args.attack_mode == 'latent':
         print('Loading VAE   ---------------')
-        vae = AutoencoderKL.from_single_file(args.vae_url).to(device)
+        vae = AutoencoderKL.from_pretrained(args.vae_url, subfolder="vae").to(device)
+
 
     x = load_png(p=args.image_path, size=args.image_size)[None, ...].to(device)
 
